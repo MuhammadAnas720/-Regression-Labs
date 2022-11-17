@@ -1,0 +1,189 @@
+---
+title: "Your Data Are Crap"
+author: "Robert Kubinec"
+format:
+  revealjs: 
+    theme: blood
+---
+
+```{r setup,echo=F}
+
+library(tidyverse)
+
+knitr::opts_chunk$set(echo=TRUE)
+
+```
+
+## How We Model Uncertainty
+
+-   Using our knowledge of R, we can demonstrate how probability works in practice.
+
+-   We will do so with what is called simulation: let's pretend that a random event happens, and then we record it.
+
+-   Imagine if you could play poker or another card game over and over again: how many times would you win and how many times would you lose?
+
+-   These are called Monte Carlo simulations after Monte Carlo's gambling industry.
+
+## R Functions for Probability Distributions
+
+-   We will focus on learning two distributions:
+    -   Normal distribution for *continuous* data
+
+    -   Bernoulli (binomial) distribution for *discrete* data
+-   In practice, much of what you will be using is the Normal distribution.
+-   The Normal distribution is the basis for regression modeling, the most common type of statistical modeling used to answer questions about relationships between variables.
+
+## Why Simulate
+
+-   Probability says that the data we have are only one realization of a process, and we want to know what the other plausible outcomes are (i.e. a statistical distribution).
+
+-   Just as we can visualize data, we can also visualize *uncertainty* by simulating a statistical distribution.
+
+-   This will help us understand how statistical distributions assign uncertainty to events.
+
+## Let's Simulate I
+
+-   The most common statistical distribution is known as the Normal distribution (also called a Bell curve and many other things).
+
+-   This distribution is for continuous data (but you can use it for some kinds of discrete data).
+
+-   The Normal distribution has two *parameters*: the mean (average) and the standard deviation (variance, sigma or $\sigma$).
+
+-   These two parameters can be thought of as the widgets that control the *data generating process*.
+
+## Let's Simulate II
+
+Base function we can use to generate Normal *samples* (or data) is `rnorm`.
+It takes these two parameters, and then generates Normal data (uncertainty).
+
+```{r gen_norm}
+
+# the number of random events
+n_sims <- 1000
+
+d <- tibble(y = rnorm(n_sims, mean = 3, sd = 0.5))
+
+mean(d$y)
+sd(d$y)
+```
+
+## That's Cool... But What Does It Look Like?
+
+We can *visualize* our uncertainty by plotting the data we generated with a histogram:
+
+```{r plot_norm}
+
+d %>% 
+  ggplot(aes(x = y)) +
+  geom_histogram(binwidth = 0.2) +
+  labs(subtitle = "1000 draws from normal dist with dist. with mean 3, sd 0.5") +
+  coord_cartesian(xlim = c(1, 5))
+
+```
+
+## That's Cool... But What Does It Look Like?
+
+We can also visualize it as a density plot:
+
+```{r plot_norm2}
+
+d %>% 
+  ggplot(aes(x = y)) +
+  geom_density() +
+  labs(subtitle = "1000 draws from normal dist with dist. with mean 3, sd 0.5") +
+  coord_cartesian(xlim = c(1, 5))
+
+```
+
+## Classroom Experiment: Everything is Normal
+
+1.  Have everyone report the number of times they go to Blacksmith coffee each week.
+2.  This represents our *population*: all the available data that we could have.
+3.  If we select random *samples* from this population, calculate the average, and save it, we will end up with the Normal distribution for those averages.
+4.  This magic is called the Central Limit Theorem.
+
+## Make the Magic Happen
+
+```{r magic,eval=F}
+# load data
+library(googlesheets4)
+class_data <- read_sheet("https://docs.google.com/spreadsheets/d/1lK3aC9lPl94osMOKl35A7uGElmp9ACw8ngckl5Yjtbg/edit#gid=0")
+# take 100 samples of size 5, calculate average
+sample_averages <- lapply(1:100, function(i) {
+  sample_n(class_data, 5) %>% summarize(avg_sample=mean(y)) %>% mutate(sample_num=i)
+    }) %>% bind_rows
+ggplot(sample_averages, aes(x=avg_sample)) + geom_histogram()
+```
+
+## Why Did This Happen?
+
+-   The Normal distribution can be thought of as the sum of a collection of random events, such as random samples from a population.
+
+-   It pops up again and again.
+
+-   It is symmetric and declines around the average value.
+
+## What If We Predict the Mean?
+
+What if we made the average not just a single value, but passed in data?
+I.e., we allowed the mean to *vary*.
+We'll compare our classroom data to data where we add Normally-distributed *random noise*.
+
+```{r norm_vary1,eval=F}
+
+class_data <- mutate(class_data,
+                     y_error=rnorm(n=n(),mean=y,sd=0.5))
+
+# plot
+
+class_data %>% ggplot(aes(y=y_error, x=y)) +
+  geom_point()
+
+```
+
+## What If We Predict the Mean?
+
+We can even get multiple samples for each classroom data point, giving us a Normal distribution around that data point as the average.
+To do this I'll use a special geom from the `ggdist` package.
+
+```{r norm_vary2,eval=F}
+library(ggdist)
+# need to do some looping
+class_data <- lapply(1:nrow(class_data), function(i) {
+    tibble(y_error=rnorm(n=100, mean=class_data$y[i],sd=1),
+           y=class_data$y[i])
+  }) %>% bind_rows
+
+# plot
+
+class_data %>% ggplot(aes(y=y_error, x=y)) +
+  stat_halfeye()
+
+```
+
+## One More Distribution: Bernoulli/Binomial
+
+What if we have discrete data?
+The simplest distribution is for a single event -- 1 or 0.
+
+1s are called "successes", and 0s are "failures".
+
+Just 1 parameter: the probability of success (a 1).
+
+Same dealio with R: we use the function `rbinom`.
+
+## Simulate Bernoulli
+
+Here's some code.
+Note that we have to use a *discrete* plot if we want to visualize a *discrete* probability distribution:
+
+```{r simbern}
+
+prob_of_success <- 0.7
+sim_data <- tibble(y2=rbinom(1000,size=1,prob=prob_of_success))
+
+sim_data %>% 
+  ggplot(aes(x=y2)) +
+  geom_bar()
+
+```

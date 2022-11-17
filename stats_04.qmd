@@ -1,0 +1,155 @@
+---
+title: "Ice-skating on the Multiple Dimensional Hypersphere"
+author: "Robert Kubinec"
+format: revealjs
+---
+
+## Review
+
+-   The Normal distribution has two parameters and represents our uncertainty.
+
+-   We can create a "linear model" by inserting the equation for a line into the mean parameter of the Normal distribution.
+
+-   We then find the most likely values that govern the relationship between the data (X) and the outcome/response (Y).
+
+-   We assume that any noise in Y is Normally-distributed.
+
+## What's Next
+
+-   Using one independent variable allows us to assess the strength of the relationship between two variables, but sometimes we want to include *multiple* predictors.
+
+-   Each additional predictor is another dimension along which we are examining Y.
+
+-   We can talk about each predictor "accounting" for some of the variation in the outcome.
+
+## Dataset
+
+Our dataset for today is a survey of youth and their parents' status.
+We will look at two variables, `mom_hs` (whether mom graduated from high school) and `mom_iq` (mom's IQ).
+The variable `kid_score` is the kid's IQ score.
+
+```{r setup, echo=F}
+library(tidyverse)
+library(ggplot2)
+library(brms)
+```
+
+```{r load_survey}
+
+kidiq <- read_csv("kidiq.csv")
+glimpse(kidiq)
+
+```
+
+## Can We Calculate the *Partial* Association?
+
+What if we think there is a relationship between both mom's high school attendance, IQ and the kid's IQ?
+What if these factors both matter, but in different ways?
+Then we can include *both* variables in the mean of the Normal distribution.
+
+```{r fit_mult}
+
+m10.3 <-
+  brm(data = kidiq,
+      kid_score ~ mom_hs + mom_iq,
+      refresh=0)
+
+summary(m10.3)
+
+```
+
+## Trick Is, What Does It Mean?
+
+-   Book gives us two possible definitions:
+
+    -   Predictive (model-based): difference in the outcome variable when comparing two groups that differ by 1 and have constant values for all other covariates.
+
+    -   Counterfactual: a change in an individual's score would change the outcome by 1 on average.
+
+-   What sort of things can we claim about a partial association?
+
+-   Technically, we are now fitting a two-dimensional plane to the outcome.
+
+## To Understand, We Need to Visualize...
+
+```{r plot_covs}
+
+all_samples <- as_draws_df(m10.3)
+
+kidiq %>% 
+  mutate(mom_hs = factor(mom_hs)) %>% 
+  
+  ggplot(aes(x = mom_iq, y = kid_score)) +
+  geom_point(aes(color = mom_hs),
+             size = 1, alpha = 1/2) +
+  # mom_hs == 0
+  geom_abline(intercept = mean(all_samples$b_Intercept), 
+              slope = mean(all_samples$b_mom_iq),
+              size = 1/3) +
+  # mom_hs == 1
+  geom_abline(intercept = mean(all_samples$b_Intercept) + mean(all_samples$b_mom_hs)*1, 
+              slope = mean(all_samples$b_mom_iq),
+              size = 1/3, color = "grey60") +
+  scale_color_viridis_d() +
+  scale_x_continuous("Mother IQ score", breaks = 4:7 * 20) +
+  scale_y_continuous("Child test score", breaks = 0:3 * 40 + 20)
+
+```
+
+## Even fit an *Interaction*
+
+```{r intfit}
+
+m10.4 <-
+  brm(data = kidiq,
+      kid_score ~ mom_hs + mom_iq + mom_hs:mom_iq,
+      refresh=0)
+
+```
+
+## And Again Visualize It
+
+```{r vizplot}
+
+p1 <-
+  kidiq %>% 
+  mutate(mom_hs = factor(mom_hs)) %>% 
+  
+  ggplot(aes(x = mom_iq, y = kid_score)) +
+  geom_point(aes(color = mom_hs),
+             size = 1/3, alpha = 1/2) +
+  # mom_hs == 0
+  geom_abline(intercept = fixef(m10.4, robust = T)[1, 1], 
+              slope = fixef(m10.4, robust = T)[3, 1],
+              size = 1/3) +
+  # mom_hs == 0
+  geom_abline(intercept = fixef(m10.4, robust = T)[1, 1] + fixef(m10.4, robust = T)[2, 1], 
+              slope = fixef(m10.4, robust = T)[3, 1] + fixef(m10.4, robust = T)[4, 1],
+              size = 1/3, color = "grey60") +
+  scale_color_manual(values = c("black", "grey60"), breaks = NULL) +
+  scale_x_continuous("Mother IQ score", breaks = 4:7 * 20) +
+  scale_y_continuous("Child test score", breaks = 0:3 * 40 + 20)
+# right
+p2 <-
+  kidiq %>% 
+  mutate(mom_hs = factor(mom_hs)) %>% 
+  
+  ggplot(aes(x = mom_iq, y = kid_score)) +
+  geom_point(aes(color = mom_hs),
+             size = 1/3, alpha = 1/2) +
+  # mom_hs == 0
+  geom_abline(intercept = fixef(m10.4, robust = T)[1, 1], 
+              slope = fixef(m10.4, robust = T)[3, 1],
+              size = 1/3) +
+  # mom_hs == 1
+  geom_abline(intercept = fixef(m10.4, robust = T)[1, 1] + fixef(m10.4, robust = T)[2, 1], 
+              slope = fixef(m10.4, robust = T)[3, 1] + fixef(m10.4, robust = T)[4, 1],
+              size = 1/3, color = "grey60") +
+  scale_color_manual(values = c("black", "grey60"), breaks = NULL) +
+  scale_x_continuous("Mother IQ score", breaks = 0:3 * 50, limits = c(0, 150)) +
+  scale_y_continuous("Child test score", breaks = 0:2 * 50, limits = c(-20, 145))
+# combine
+library(patchwork)
+p1 + p2
+
+```

@@ -1,0 +1,197 @@
+---
+title: "Regress or Die Tryin'"
+author: "Robert Kubinec"
+format:
+  revealjs: 
+    theme: blood
+---
+
+```{r setup,echo=F}
+
+library(tidyverse)
+library(ggplot2) 
+library(brms)
+
+knitr::opts_chunk$set(echo=TRUE)
+
+# make our plots pretty
+
+theme_set(theme_linedraw() +
+            theme(panel.grid = element_blank()))
+
+```
+
+## Onwards
+
+![](winniethepooh.jpeg){fig-align="center" width="400"}
+
+## How We Model Uncertain **Relationships**
+
+-   We can talk about the uncertainty of a given data point (or set of events) using the Normal/Bernoulli distributions.
+
+-   Often we want to talk about relationships between data variables/columns (also called relations).
+
+-   We often call these measures of *association*.
+    Correlation is a type of association that you have already used.
+
+## Thinking About Regression to the Mean
+
+```{r loadheights}
+heights <- 
+  read_table2("Heights.txt") %>% 
+  set_names("daughter_height", "mother_height")
+glimpse(heights)
+```
+
+## Thinking About Regression to the Mean
+
+```{r plotheights}
+heights %>% 
+  ggplot(aes(x = mother_height, y = daughter_height)) +
+  geom_jitter(size = 1/10, alpha = 1/2) +
+  stat_smooth(method = "lm", se = F) +
+  geom_point(data = . %>% 
+               summarise(mother_height = mean(mother_height),
+                         daughter_height = mean(daughter_height)),
+             color = "white", fill = "blue",
+             shape = 21, size = 4, stroke = 1/4) +
+  labs(subtitle = "Mothers' and daughters' heights,\naverage of data, and fitted regression line",
+       x = "Mother's height (inches)",
+       y = "Adult daughter's height (inches)")
+```
+
+## The Averages Remain the Across Generations
+
+```{r avg_gen}
+
+heights %>% 
+  summarise(mother_height   = mean(mother_height), 
+            daughter_height = mean(daughter_height))
+
+```
+
+## We Can All Be Models
+
+```{r simnorm}
+
+a <- 0.2
+b <- 0.3
+sigma <- 0.5
+set.seed(6)
+d <-
+  tibble(x = 1:20) %>% 
+  mutate(y = a + b * x + sigma * rnorm(n(), mean = 0, sd = 1))
+d
+```
+
+## BRMS: We Can *Fit* a Model
+
+```{r fitnorm}
+
+m6.1 <- brm(data = d, y ~ x,refresh=0)
+print(m6.1)
+
+```
+
+## Plot Our Fit
+
+```{r plotfit}
+
+d %>% 
+  ggplot(aes(x = x, y = y)) +
+  geom_abline(intercept = fixef(m6.1)[1, 1], slope = fixef(m6.1)[2, 1]) +
+  geom_point() +
+  annotate(geom = "text",
+           x = 14, y = 3.5,
+           label = expression(y==0.25+0.30*x)) +
+  labs(subtitle = "Data and fitted regression line")
+
+```
+
+## Look At the Parameters With Uncertainty
+
+```{r params}
+
+posterior_summary(m6.1, robust = T)[1:3, 1:2] %>% 
+  round(digits = 2) %>% 
+  as_tibble() %>% 
+  rename(Uncertainty = Est.Error) %>% 
+  mutate(Parameter = c("a", "b", "sigma")) %>% 
+  mutate(`Assumed value` = c(0.2,0.3,0.5)) %>% 
+  select(Parameter, `Assumed value`, Estimate, Uncertainty)
+
+```
+
+## Plot the Parameters with Uncertainty
+
+```{r plot_params}
+
+plot(m6.1,
+     variable = c("b_Intercept","b_x","sigma"),
+     combo = c("dens","intervals"))
+
+```
+
+## What the Samples Look Like
+
+```{r looksamples}
+
+samples <- as_draws_df(m6.1)
+
+print(samples,reserved = TRUE)
+```
+
+## Make Our Own Density Plot
+
+```{r plot_x}
+
+samples %>% 
+  ggplot(aes(x=b_x)) +
+  geom_histogram() +
+  ggthemes::theme_tufte() +
+  labs(x="b_x",y="")
+
+```
+
+## Look at the Priors
+
+```{r get_priors}
+
+m6.2 <- brm(data = d, y ~ x,refresh=0,
+            sample_prior = "only",
+            prior=prior(normal(0,1),class="b"))
+
+samples2 <- as_draws_df(m6.2) %>% mutate(Type="Prior")
+
+samples %>% 
+  mutate(Type="Posterior") %>% 
+  bind_rows(samples2) %>% 
+  ggplot(aes(x=b_x)) +
+  geom_histogram() +
+  ggthemes::theme_tufte() +
+  labs(x="b_x",y="") +
+    facet_wrap(~Type,scales="free_x")
+
+```
+
+## Or Even Do a Fun Overlay
+
+```{r overlayplot}
+
+samples %>% 
+  mutate(Type="Posterior") %>% 
+  bind_rows(samples2) %>% 
+  ggplot(aes(x=b_x)) +
+  geom_density(aes(fill=Type),alpha=0.5, colour=NA) +
+  ggthemes::theme_tufte() +
+  labs(x="b_x",y="")
+
+```
+
+## Calculate the Conditional Mean
+
+```{r plot_mean}
+
+conditional_effects(m6.1, effects = "x")
+
+```
